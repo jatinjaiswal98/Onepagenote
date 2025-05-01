@@ -1,95 +1,138 @@
 import streamlit as st
+import tempfile
+import os
+from docx import Document
 import PyPDF2
-from transformers import pipeline
+import openai
 
-# Function to extract text from a PDF
-def extract_text_from_pdf(file):
-    reader = PyPDF2.PdfReader(file)
-    text = ''
-    for page in reader.pages:
-        text += page.extract_text()
-    return text
+# Load Together API key from Streamlit secrets
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
-# Initialize the Hugging Face summarization pipeline with Mistral-7B model
-summarizer = pipeline("summarization", model="mistralai/Mistral-7B")
+# Function to extract text from uploaded files
+def extract_text(file):
+    ext = file.name.split(".")[-1].lower()
+    annexure_text = ""  # Variable to hold annexure text
+    if ext == "txt":
+        return file.read().decode("utf-8"), annexure_text
+    elif ext == "pdf":
+        reader = PyPDF2.PdfReader(file)
+        text = ""
+        annexure_start = False  # Flag to track annexure section
+        
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+                
+                # Identify if we are in the annexure section (this could be refined further based on contract structure)
+                if "ANNEXURE" in page_text.upper():  
+                    annexure_start = True
 
-# Function to summarize the extracted text
-def summarize_text(text):
-    summary = summarizer(text, max_length=500, min_length=100, do_sample=False)
-    return summary[0]['summary_text']
+                if annexure_start:
+                    annexure_text += page_text
+        return text, annexure_text
+    elif ext == "docx":
+        doc = Document(file)
+        text = ""
+        annexure_text = ""
+        annexure_start = False
 
-# Streamlit App UI
-st.title("Contract Summary Tool")
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+            if "ANNEXURE" in para.text.upper():
+                annexure_start = True
+            if annexure_start:
+                annexure_text += para.text + "\n"
+        return text, annexure_text
+    else:
+        return "Unsupported file format", annexure_text
 
-# File uploader for PDF, DOCX, or TXT files
-uploaded_file = st.file_uploader("Upload your contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
+st.title("📄 OnePageNote – Contract Summarizer")
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
-if uploaded_file is not None:
-    # Extract text based on file type
-    if uploaded_file.type == "application/pdf":
-        contract_text = extract_text_from_pdf(uploaded_file)
-    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        from docx import Document
-        doc = Document(uploaded_file)
-        contract_text = "\n".join([para.text for para in doc.paragraphs])
-    elif uploaded_file.type == "text/plain":
-        contract_text = str(uploaded_file.read(), "utf-8")
+if uploaded_file:
+    contract_text, annexure_text = extract_text(uploaded_file)
+    if contract_text:
+        st.success("File uploaded and read successfully!")
 
-    # Display raw text
-    st.subheader("Raw Contract Text")
-    st.text_area("Contract Text", contract_text, height=300)
+        prompt = f"""
+        You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
 
-    # Generate the summary
-    st.subheader("Generated Contract Summary")
+        🔑 **Key Points in Legal Contracts**:
+        
+        1. **Parties Involved**:
+            - Provide the full names and addresses of all parties.
+            - Specify the legal capacity and authority of each party to sign the contract.
 
-    summary = summarize_text(contract_text)
-    st.write(summary)
+        2. **Purpose of the Contract**:
+            - What is the clear statement of intent or scope of the contract?
+            - Describe the goods, services, or responsibilities the contract addresses.
 
-    # Enhanced format summary based on user request
-    st.subheader("Formatted Contract Summary")
+        3. **Terms and Conditions**:
+            - What are the start and end dates of the contract (or is it ongoing)?
+            - What are the payment terms (amount, mode, frequency)?
+            - What are the obligations and duties of each party under the contract?
 
-    # Placeholder summary format (Adjust accordingly based on specific requirements)
-    formatted_summary = f"""
-    1. **Parties Involved:**
-    [Summary of parties involved]
+        4. **Deliverables and Timelines**:
+            - What are the milestones or deadlines mentioned in the contract?
+            - Are there any quality or performance expectations set in the contract?
 
-    2. **Purpose:**
-    [Summary of the purpose of the contract]
+        5. **Termination Clause**:
+            - Under what conditions can the contract be terminated early?
+            - What is the notice period for termination?
 
-    3. **Terms:**
-    [Summary of the terms]
+        6. **Confidentiality Clause**:
+            - Are there any terms for non-disclosure of proprietary or sensitive information?
 
-    4. **Deliverables:**
-    [Summary of the deliverables]
+        7. **Dispute Resolution**:
+            - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
 
-    5. **Termination:**
-    [Summary of the termination clauses]
+        8. **Liabilities and Indemnities**:
+            - What risks are each party responsible for?
+            - What compensation is due for losses, damages, or third-party claims?
 
-    6. **Confidentiality:**
-    [Summary of the confidentiality clauses]
+        9. **Force Majeure**:
+            - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
 
-    7. **Dispute Resolution:**
-    [Summary of the dispute resolution clauses]
+        10. **Amendments and Modifications**:
+            - How will changes to the agreement be made and documented?
 
-    8. **Liabilities:**
-    [Summary of liabilities]
+        11. **Warranties and Representations**:
+            - Are there any guarantees made by either party regarding facts or performance?
 
-    9. **Force Majeure:**
-    [Summary of force majeure clauses]
+        12. **Governing Law**:
+            - What laws (e.g., country or state) govern the contract?
 
-    10. **Amendments:**
-    [Summary of amendments clauses]
+        13. **Signatures and Dates**:
+            - Who are the authorized representatives that signed the contract?
+            - Are the dates and witnesses properly included?
 
-    11. **Warranties:**
-    [Summary of warranties]
+        Below is the contract text:
+        {contract_text}
+        """
 
-    12. **Governing Law:**
-    [Summary of governing law]
+        st.write("Generating summary...")
 
-    13. **Annexure Complete:**
-    [Annexure content or summary]
+        try:
+            response = client.chat.completions.create(
+                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+                messages=[
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts with detailed breakdowns."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
+            summary = response.choices[0].message.content
+            st.subheader("📋 One Page Summary:")
+            st.write(summary)
 
-    14. **Signatures:**
-    [Summary of signatures]
-    """
-    st.text_area("Formatted Summary", formatted_summary, height=400)
+            # Append the annexure content at the end of the summary
+            if annexure_text:
+                st.subheader("📎 Annexure:")
+                st.write(annexure_text)
+
+        except Exception as e:
+            st.error(f"Failed to generate summary: {e}")
+    else:
+        st.error("Could not read file content.")
