@@ -39,7 +39,7 @@ def summarize_contract(text):
 
         # Accessing the 'content' inside 'choices' correctly
         if 'choices' in response and len(response['choices']) > 0:
-            summary = response['choices'][0].message.content
+            summary = response['choices'][0]['message']['content']
         else:
             summary = "Error: No valid summary returned."
     except Exception as e:
