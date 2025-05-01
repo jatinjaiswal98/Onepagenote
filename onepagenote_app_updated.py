@@ -33,12 +33,13 @@ def summarize_contract(text):
                 {"role": "user", "content": text}
             ]
         )
-        # Print the response to debug the structure
+        
+        # Debugging: Print the entire response to check its structure
         st.write("API Response:", response)
 
-        # Adjusting for correct structure of the response
+        # Accessing the 'content' inside 'choices' correctly
         if 'choices' in response and len(response['choices']) > 0:
-            summary = response['choices'][0].get('message', {}).get('content', "No content found.")
+            summary = response['choices'][0].message.content
         else:
             summary = "Error: No valid summary returned."
     except Exception as e:
