@@ -1,90 +1,101 @@
+import openai
+import docx
+import PyPDF2
 import streamlit as st
 import os
-import tempfile
-from PyPDF2 import PdfReader
 from docx import Document
 import re
-import openai
 
-st.set_page_config(page_title="OnePageNote - Contract Summarizer")
-st.title("📄 OnePageNote: AI Contract Summarizer")
+# Function to extract text from PDF
+def extract_text_from_pdf(pdf_file):
+    with open(pdf_file, "rb") as file:
+        reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in range(len(reader.pages)):
+            text += reader.pages[page].extract_text()
+    return text
 
-uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
+# Function to extract text from DOCX
+def extract_text_from_docx(docx_file):
+    doc = Document(docx_file)
+    text = ""
+    for para in doc.paragraphs:
+        text += para.text + "\n"
+    return text
 
-if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix="." + uploaded_file.name.split(".")[-1]) as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        tmp_path = tmp_file.name
+# Function to extract text from TXT
+def extract_text_from_txt(txt_file):
+    with open(txt_file, "r") as file:
+        text = file.read()
+    return text
 
-    file_text = ""
-
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(tmp_path)
-        file_text = "\n".join([page.extract_text() for page in reader if page.extract_text()])
-    elif uploaded_file.name.endswith(".docx"):
-        doc = Document(tmp_path)
-        file_text = "\n".join([para.text for para in doc.paragraphs])
-    elif uploaded_file.name.endswith(".txt"):
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            file_text = f.read()
-
-    # Extract Annexure Pages (last 3 pages for safety)
-    annexure_text = ""
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(tmp_path)
-        annexure_text = "\n".join([reader.pages[i].extract_text() or "" for i in range(-3, 0)])
-
-    full_prompt = f"""
-    You are a legal and business analyst. Extract and summarize the following contract into one page. Include:
-
-    🔹 Parties Involved
-    🔹 Purpose of the Contract
-    🔹 Terms and Conditions (duration, payments, obligations)
-    🔹 Deliverables and Timelines
-    🔹 Termination Clause
-    🔹 Confidentiality
-    🔹 Dispute Resolution
-    🔹 Liabilities and Indemnities
-    🔹 Force Majeure
-    🔹 Amendments
-    🔹 Warranties and Representations
-    🔹 Governing Law
-    🔹 Signatures and Dates
-    🔹 Annexures (summarized + attach below if available)
-    🔹 📌 Highlight any price or commercial figures (₹, INR, $, %, etc.)
+# Function to extract and process commercials (price, payment terms, etc.)
+def extract_commercials(text):
+    commercials = []
     
-    Contract:
-    {file_text}
+    # Look for commercial details like price points, payment terms, etc.
+    price_pattern = re.compile(r"\b(?:price|cost|fees?|amount|charges?)\b.*\d[\d,\.]*", re.IGNORECASE)
+    payments_pattern = re.compile(r"\b(?:payment|installments?|due)\b.*\d[\d,\.]*", re.IGNORECASE)
+    
+    # Find matches
+    price_matches = re.findall(price_pattern, text)
+    payments_matches = re.findall(payments_pattern, text)
+    
+    if price_matches:
+        commercials.append("Price Points / Amounts: \n" + "\n".join(price_matches))
+    if payments_matches:
+        commercials.append("Payment Terms: \n" + "\n".join(payments_matches))
+    
+    return "\n".join(commercials)
+
+# Streamlit UI
+st.title("Contract Summary Generator")
+
+uploaded_file = st.file_uploader("Upload Contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+
+if uploaded_file is not None:
+    # Extract text based on file type
+    file_type = uploaded_file.name.split('.')[-1].lower()
+    if file_type == "pdf":
+        text = extract_text_from_pdf(uploaded_file)
+    elif file_type == "docx":
+        text = extract_text_from_docx(uploaded_file)
+    elif file_type == "txt":
+        text = extract_text_from_txt(uploaded_file)
+    
+    # Call OpenAI API to generate contract summary
+    openai.api_key = st.secrets["OPENAI_API_KEY"]
+    
+    # Prepare prompt for OpenAI
+    prompt = f"""
+    Summarize this contract in one page with the following sections:
+    - Key Legal Points
+    - Commercials (Price, Payment Terms, etc.)
+    - Annexures (if any)
+    
+    Here's the contract text:
+    {text}
     """
-
-    # Highlight price terms manually in original text for visibility
-    highlighted_text = re.sub(r"(₹\s?\d+[\d,]*)", r"**\1**", file_text)
-    highlighted_text = re.sub(r"\$\s?\d+[\d,]*", r"**\g<0>**", highlighted_text)
-    highlighted_text = re.sub(r"\bINR\s?\d+[\d,]*", r"**\g<0>**", highlighted_text)
-
-    from openai import OpenAI
-    client = OpenAI(api_key=st.secrets["TOGETHER_API_KEY"])
-
-    with st.spinner("Generating one-page summary..."):
-        response = client.chat.completions.create(
-            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-            messages=[
-                {"role": "system", "content": "You are a contract summarization assistant."},
-                {"role": "user", "content": full_prompt}
-            ],
-            temperature=0.4
+    
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # Using GPT model
+            prompt=prompt,
+            max_tokens=1500,
+            temperature=0.7
         )
 
-        summary = response.choices[0].message.content
+        summary = response.choices[0].text.strip()
 
-    st.subheader("📌 One Page Summary")
-    st.markdown(summary)
+        # Extract and show the commercial details
+        commercials = extract_commercials(text)
 
-    st.subheader("📎 Annexure (Extracted from contract)")
-    st.text_area("Annexure Text", annexure_text, height=200)
+        st.subheader("Contract Summary:")
+        st.write(summary)
 
-    # Optionally download annexure text as a file
-    st.download_button("📥 Download Annexure", annexure_text, file_name="Annexure.txt")
+        if commercials:
+            st.subheader("Commercials:")
+            st.write(commercials)
 
-    st.subheader("🔍 Contract Text with Highlighted Commercial Terms")
-    st.markdown(highlighted_text.replace("\n", "  \n"))
+    except openai.error.OpenAIError as e:
+        st.error(f"Error: {e}")
