@@ -36,7 +36,7 @@ if uploaded_file:
         You are a legal expert. Your task is to summarize the contract in one page with all the following key points. Make sure each point is detailed, especially for annexures and signatures.
 
         🔑 **Key Points in Legal Contracts**:
-        
+
         1. **Parties Involved**:
             - Provide the full names and addresses of all parties.
             - Specify the legal capacity and authority of each party to sign the contract.
@@ -81,8 +81,7 @@ if uploaded_file:
             - What laws (e.g., country or state) govern the contract?
 
         13. **Annexures or Schedules** (if any):
-            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
-            - **Extract and display the complete annexures from the contract**. These are typically found in the last few pages. Ensure the annexures are fully included in your response.
+            - **Extract and display the complete annexures from the contract**. These are typically found in the last few pages. Ensure that all the annexures are fully included in your response.
 
         14. **Signatures and Dates**:
             - Who are the authorized representatives that signed the contract?
@@ -103,7 +102,7 @@ if uploaded_file:
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
-                max_tokens=3000,  # Increase token limit to capture more content
+                max_tokens=3500,  # Increased token limit for larger responses
             )
             summary = response.choices[0].message.content
             st.subheader("📋 One Page Summary:")
