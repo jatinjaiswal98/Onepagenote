@@ -1,112 +1,106 @@
 import streamlit as st
-import tempfile
 import os
-from docx import Document
-import PyPDF2
-import openai
+import fitz  # PyMuPDF
+import tempfile
+from together import Together
 
-# Load Together API key from Streamlit secrets
-api_key = st.secrets["TOGETHER_API_KEY"]
-client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
+st.set_page_config(page_title="OnePageNote - Contract Summarizer", layout="wide")
+st.title("📄 OnePageNote: Contract Summarizer")
 
-# Function to extract text from uploaded files
-def extract_text(file):
-    ext = file.name.split(".")[-1].lower()
-    if ext == "txt":
-        return file.read().decode("utf-8")
-    elif ext == "pdf":
-        reader = PyPDF2.PdfReader(file)
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
-        return text
-    elif ext == "docx":
-        doc = Document(file)
-        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
-    else:
-        return "Unsupported file format"
-
-st.title("📄 OnePageNote – Contract Summarizer")
 uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
+# Get Together API Key
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = Together(api_key=api_key)
+
+# Function to extract text from PDF
+def extract_text_from_pdf(file_path):
+    doc = fitz.open(file_path)
+    text = ""
+    for page in doc:
+        text += page.get_text()
+    return text
+
+# Function to split contract into main and annexure/signature parts
+def split_contract_text(full_text):
+    lines = full_text.strip().split("\n")
+    total_lines = len(lines)
+    cutoff = int(total_lines * 0.85)  # Last 15% as annexure
+    main_body = "\n".join(lines[:cutoff])
+    annexure_section = "\n".join(lines[cutoff:])
+    return main_body, annexure_section
+
+# Prompt templates
+main_prompt_template = '''You are a legal assistant. Extract and summarize the key points of this contract in one page. Include the following sections:
+
+🔑 Key Points in Legal Contracts:
+1. Parties Involved (names, addresses)
+2. Purpose of the Contract (scope, services, goods)
+3. Terms and Conditions (duration, payment, obligations)
+4. Deliverables and Timelines
+5. Termination Clause
+6. Confidentiality Clause
+7. Dispute Resolution
+8. Liabilities and Indemnities
+9. Force Majeure
+10. Amendments and Modifications
+11. Warranties and Representations
+12. Governing Law
+
+Text:
+"""
+{main_text}
+"""
+'''
+
+annexure_prompt_template = '''You are a legal assistant. Extract:
+1. Any complete annexures from this section.
+2. Signature names and dates.
+
+Text:
+"""
+{annexure_text}
+"""
+'''
+
 if uploaded_file:
-    contract_text = extract_text(uploaded_file)
-    if contract_text:
-        st.success("File uploaded and read successfully!")
+    with tempfile.NamedTemporaryFile(delete=False, suffix=uploaded_file.name) as tmp_file:
+        tmp_file.write(uploaded_file.read())
+        tmp_path = tmp_file.name
 
-        prompt = f"""
-        You are a legal expert. Your task is to summarize the contract in one page and provide detailed breakdowns under the following key points. Please ensure to extract full annexures (if any) found in the last few pages of the contract. Also, ensure that the **Signatures, Name, and Date** are included in the final summary. Your summary should follow this structure:
+    with st.spinner("Extracting and analyzing contract text..."):
+        # Extract full text
+        full_text = extract_text_from_pdf(tmp_path)
+        main_text, annexure_text = split_contract_text(full_text)
 
-        🔑 **Key Points in Legal Contracts**:
-        
-        1. **Parties Involved**:
-            - Provide the full names and addresses of all parties.
-            - Specify the legal capacity and authority of each party to sign the contract.
+        # Get main summary
+        main_prompt = main_prompt_template.format(main_text=main_text)
+        main_response = client.chat.completions.create(
+            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+            messages=[
+                {"role": "user", "content": main_prompt}
+            ],
+            max_tokens=2048,
+            temperature=0.4,
+        )
+        main_summary = main_response.choices[0].message.content.strip()
 
-        2. **Purpose of the Contract**:
-            - What is the clear statement of intent or scope of the contract?
-            - Describe the goods, services, or responsibilities the contract addresses.
+        # Get annexure & signatures
+        annexure_prompt = annexure_prompt_template.format(annexure_text=annexure_text)
+        annexure_response = client.chat.completions.create(
+            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+            messages=[
+                {"role": "user", "content": annexure_prompt}
+            ],
+            max_tokens=2048,
+            temperature=0.4,
+        )
+        annexure_summary = annexure_response.choices[0].message.content.strip()
 
-        3. **Terms and Conditions**:
-            - What are the start and end dates of the contract (or is it ongoing)?
-            - What are the payment terms (amount, mode, frequency)?
-            - What are the obligations and duties of each party under the contract?
+    st.subheader("📘 Contract Summary")
+    st.markdown(main_summary)
 
-        4. **Deliverables and Timelines**:
-            - What are the milestones or deadlines mentioned in the contract?
-            - Are there any quality or performance expectations set in the contract?
+    st.subheader("📎 Annexures & Signatures")
+    st.markdown(annexure_summary)
 
-        5. **Termination Clause**:
-            - Under what conditions can the contract be terminated early?
-            - What is the notice period for termination?
-
-        6. **Confidentiality Clause**:
-            - Are there any terms for non-disclosure of proprietary or sensitive information?
-
-        7. **Dispute Resolution**:
-            - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
-
-        8. **Liabilities and Indemnities**:
-            - What risks are each party responsible for?
-            - What compensation is due for losses, damages, or third-party claims?
-
-        9. **Force Majeure**:
-            - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
-
-        10. **Amendments and Modifications**:
-            - How will changes to the agreement be made and documented?
-
-        11. **Warranties and Representations**:
-            - Are there any guarantees made by either party regarding facts or performance?
-
-        12. **Governing Law**:
-            - What laws (e.g., country or state) govern the contract?
-
-        13. **Annexures or Schedules** (if any):
-            - Include **all annexure content**, which can be found in the last pages of the contract. Make sure all supporting documents or detailed breakdowns attached at the end of the contract are fully included.
-
-        14. **Signatures and Dates**:
-            - Provide the names and signatures of the authorized representatives.
-            - Include the **date** of signing.
-            - Ensure that **dates and witness information** are properly captured.
-
-        Below is the contract text:
-        {contract_text}
-        """
-
-        st.write("Generating summary...")
-
-        try:
-            response = client.chat.completions.create(
-                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                messages=[
-                    {"role": "system", "content": "You are a legal assistant. Summarize contracts with detailed breakdowns."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-            )
-            summary = response.choices[0].message.content
-            st.subheader("📋 One Page Summary:")
-            st.write(summary)
-        except Exception as e:
-            st.error(f"Failed to generate summary: {e}")
-    else:
-        st.error("Could not read file content.")
+    os.remove(tmp_path)
