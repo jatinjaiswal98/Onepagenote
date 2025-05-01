@@ -24,14 +24,29 @@ def extract_text(file):
     else:
         return "Unsupported file format"
 
+# Function to extract annexure from the last few pages (only for PDF)
+def extract_annexures_from_pdf(file):
+    annexures = []
+    reader = PyPDF2.PdfReader(file)
+    num_pages = len(reader.pages)
+    for i in range(num_pages - 3, num_pages):  # Attempt to extract from the last 3 pages
+        page = reader.pages[i]
+        annexures.append(page.extract_text())
+    return "\n".join(annexures)
+
 st.title("📄 OnePageNote – Contract Summarizer")
 uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
     contract_text = extract_text(uploaded_file)
+    annexure_text = ""
+    if uploaded_file.name.lower().endswith(".pdf"):
+        annexure_text = extract_annexures_from_pdf(uploaded_file)
+    
     if contract_text:
         st.success("File uploaded and read successfully!")
 
+        # The prompt includes a request to extract all the requested information and make sure annexures are included
         prompt = f"""
         You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
 
@@ -82,11 +97,12 @@ if uploaded_file:
 
         13. **Annexures or Schedules** (if any):
             - Are there supporting documents or detailed breakdowns attached at the end of the contract?
-            - Include the full annexure contents.
+            - Include the full annexure contents extracted from the last pages.
 
         14. **Signatures and Dates**:
             - Who are the authorized representatives that signed the contract?
-            - Are the dates and witnesses properly included?
+            - What are the signatures, titles, and dates?
+            - Include this information properly formatted at the end.
 
         Below is the contract text:
         {contract_text}
@@ -104,6 +120,11 @@ if uploaded_file:
                 temperature=0.3,
             )
             summary = response.choices[0].message.content
+            
+            # Append annexure content if available
+            if annexure_text:
+                summary += "\n\nAnnexures:\n" + annexure_text
+
             st.subheader("📋 One Page Summary:")
             st.write(summary)
         except Exception as e:
