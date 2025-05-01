@@ -59,52 +59,52 @@ if uploaded_file:
         prompt = f"""
         You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
 
-        🔑 **Key Points in Legal Contracts**:
-        
-        1. **Parties Involved**:
+        ## 🔑 Key Points in Legal Contracts:
+
+        ### 1. **Parties Involved**:
             - Provide the full names and addresses of all parties.
             - Specify the legal capacity and authority of each party to sign the contract.
 
-        2. **Purpose of the Contract**:
+        ### 2. **Purpose of the Contract**:
             - What is the clear statement of intent or scope of the contract?
             - Describe the goods, services, or responsibilities the contract addresses.
 
-        3. **Terms and Conditions**:
+        ### 3. **Terms and Conditions**:
             - What are the start and end dates of the contract (or is it ongoing)?
             - What are the payment terms (amount, mode, frequency)?
             - What are the obligations and duties of each party under the contract?
 
-        4. **Deliverables and Timelines**:
+        ### 4. **Deliverables and Timelines**:
             - What are the milestones or deadlines mentioned in the contract?
             - Are there any quality or performance expectations set in the contract?
 
-        5. **Termination Clause**:
+        ### 5. **Termination Clause**:
             - Under what conditions can the contract be terminated early?
             - What is the notice period for termination?
 
-        6. **Confidentiality Clause**:
+        ### 6. **Confidentiality Clause**:
             - Are there any terms for non-disclosure of proprietary or sensitive information?
 
-        7. **Dispute Resolution**:
+        ### 7. **Dispute Resolution**:
             - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
 
-        8. **Liabilities and Indemnities**:
+        ### 8. **Liabilities and Indemnities**:
             - What risks are each party responsible for?
             - What compensation is due for losses, damages, or third-party claims?
 
-        9. **Force Majeure**:
+        ### 9. **Force Majeure**:
             - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
 
-        10. **Amendments and Modifications**:
+        ### 10. **Amendments and Modifications**:
             - How will changes to the agreement be made and documented?
 
-        11. **Warranties and Representations**:
+        ### 11. **Warranties and Representations**:
             - Are there any guarantees made by either party regarding facts or performance?
 
-        12. **Governing Law**:
+        ### 12. **Governing Law**:
             - What laws (e.g., country or state) govern the contract?
 
-        13. **Signatures and Dates**:
+        ### 13. **Signatures and Dates**:
             - Who are the authorized representatives that signed the contract?
             - Are the dates and witnesses properly included?
 
@@ -124,13 +124,13 @@ if uploaded_file:
                 temperature=0.3,
             )
             summary = response.choices[0].message.content
-            st.subheader("📋 One Page Summary:")
-            st.write(summary)
+            st.subheader("📋 **One Page Summary:**")
+            st.markdown(summary)
 
             # Append the annexure content at the end of the summary
             if annexure_text:
-                st.subheader("📎 Annexure:")
-                st.write(annexure_text)
+                st.subheader("📎 **Annexure:**")
+                st.markdown(annexure_text)
 
         except Exception as e:
             st.error(f"Failed to generate summary: {e}")
