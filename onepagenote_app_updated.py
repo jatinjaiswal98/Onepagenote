@@ -12,23 +12,47 @@ client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 # Function to extract text from uploaded files
 def extract_text(file):
     ext = file.name.split(".")[-1].lower()
+    annexure_text = ""  # Variable to hold annexure text
     if ext == "txt":
-        return file.read().decode("utf-8")
+        return file.read().decode("utf-8"), annexure_text
     elif ext == "pdf":
         reader = PyPDF2.PdfReader(file)
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
-        return text
+        text = ""
+        annexure_start = False  # Flag to track annexure section
+        
+        for page_num, page in enumerate(reader.pages):
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text
+                
+                # Identify if we are in the annexure section (this could be refined further based on contract structure)
+                if "ANNEXURE" in page_text.upper():  
+                    annexure_start = True
+
+                if annexure_start:
+                    annexure_text += page_text
+        return text, annexure_text
     elif ext == "docx":
         doc = Document(file)
-        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+        text = ""
+        annexure_text = ""
+        annexure_start = False
+
+        for para in doc.paragraphs:
+            text += para.text + "\n"
+            if "ANNEXURE" in para.text.upper():
+                annexure_start = True
+            if annexure_start:
+                annexure_text += para.text + "\n"
+        return text, annexure_text
     else:
-        return "Unsupported file format"
+        return "Unsupported file format", annexure_text
 
 st.title("📄 OnePageNote – Contract Summarizer")
 uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
-    contract_text = extract_text(uploaded_file)
+    contract_text, annexure_text = extract_text(uploaded_file)
     if contract_text:
         st.success("File uploaded and read successfully!")
 
@@ -84,9 +108,6 @@ if uploaded_file:
             - Who are the authorized representatives that signed the contract?
             - Are the dates and witnesses properly included?
 
-        14. **Annexures or Schedules** (if any):
-            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
-
         Below is the contract text:
         {contract_text}
         """
@@ -105,6 +126,12 @@ if uploaded_file:
             summary = response.choices[0].message.content
             st.subheader("📋 One Page Summary:")
             st.write(summary)
+
+            # Append the annexure content at the end of the summary
+            if annexure_text:
+                st.subheader("📎 Annexure:")
+                st.write(annexure_text)
+
         except Exception as e:
             st.error(f"Failed to generate summary: {e}")
     else:
