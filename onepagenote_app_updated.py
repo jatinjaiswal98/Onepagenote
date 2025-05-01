@@ -80,12 +80,13 @@ if uploaded_file:
         12. **Governing Law**:
             - What laws (e.g., country or state) govern the contract?
 
-        13. **Signatures and Dates**:
+        13. **Annexures or Schedules** (if any):
+            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
+            - Include the full annexure contents.
+
+        14. **Signatures and Dates**:
             - Who are the authorized representatives that signed the contract?
             - Are the dates and witnesses properly included?
-
-        14. **Annexures or Schedules** (if any):
-            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
 
         Below is the contract text:
         {contract_text}
