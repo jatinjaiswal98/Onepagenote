@@ -2,12 +2,14 @@ import streamlit as st
 import requests
 import json
 import fitz  # PyMuPDF
+import docx2txt
+import io
 
 st.set_page_config(page_title="OnePageNote", layout="wide")
 
 st.title("📄 OnePageNote - Contract Summary Tool")
 
-api_key = st.secrets["TOGETHER_API_KEY"]  # Set this in Streamlit Cloud Secrets
+api_key = st.secrets["TOGETHER_API_KEY"]  # Set in Streamlit Secrets
 
 def query_together(prompt):
     url = "https://api.together.xyz/v1/chat/completions"
@@ -28,17 +30,23 @@ def query_together(prompt):
         st.error("API Error: " + response.text)
         return "Error: Unable to fetch summary"
 
-def extract_text_from_pdf(pdf_file):
-    with fitz.open(stream=pdf_file.read(), filetype="pdf") as doc:
-        full_text = ""
-        for page in doc:
-            full_text += page.get_text()
-    return full_text
+def extract_text(file):
+    file_type = file.type
+    if file_type == "application/pdf":
+        with fitz.open(stream=file.read(), filetype="pdf") as doc:
+            return "\n".join(page.get_text() for page in doc)
+    elif file_type in ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"]:
+        return docx2txt.process(io.BytesIO(file.read()))
+    elif file_type in ["text/plain"]:
+        return file.read().decode("utf-8")
+    else:
+        st.error("Unsupported file type")
+        return ""
 
 def extract_annexures(text):
     lines = text.split("\n")
     annexure_start = None
-    for i, line in enumerate(lines[::-1]):  # Start from the end
+    for i, line in enumerate(lines[::-1]):
         if "annexure" in line.lower() or "schedule" in line.lower():
             annexure_start = len(lines) - i - 1
             break
@@ -46,16 +54,16 @@ def extract_annexures(text):
         return "\n".join(lines[annexure_start:])
     return ""
 
-uploaded_file = st.file_uploader("Upload a contract document (PDF)", type=["pdf"])
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
     with st.spinner("Extracting content..."):
-        contract_text = extract_text_from_pdf(uploaded_file)
+        contract_text = extract_text(uploaded_file)
         annexure_text = extract_annexures(contract_text)
-        combined_text = contract_text + "\n\n---\n\nANNEXURE SECTION:\n" + annexure_text
+        full_content = contract_text + "\n\n---\n\nANNEXURE SECTION:\n" + annexure_text
 
     prompt = f"""
-You are a contract analysis assistant. Read the full text below and create a complete one-page summary including these sections:
+You are a contract analysis assistant. Read the full contract below and create a detailed one-page summary including:
 
 1. **Parties Involved**
 2. **Purpose of the Contract**
@@ -70,14 +78,14 @@ You are a contract analysis assistant. Read the full text below and create a com
 11. **Warranties and Representations**
 12. **Governing Law**
 13. **Signatures and Dates**
-14. **Annexures or Schedules (summarize key points if present)**
-15. **Commercials** (highlight any price, cost, fees, penalties, payment schedules)
+14. **Annexures or Schedules** (summarize AND include full annexure content)
+15. **Commercials** (highlight any price, fees, penalties, payment schedules)
 
-Focus on both **legal clauses** and **commercial elements** clearly.
+Use plain and clear formatting.
 
-Contract Content:
+Contract:
 \"\"\"
-{combined_text}
+{full_content}
 \"\"\"
 """
 
