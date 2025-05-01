@@ -82,11 +82,12 @@ if uploaded_file:
 
         13. **Annexures or Schedules** (if any):
             - Are there supporting documents or detailed breakdowns attached at the end of the contract?
-            - Include the full annexure contents.
+            - **Extract and display the complete annexures from the contract**. These are typically found in the last few pages.
 
         14. **Signatures and Dates**:
             - Who are the authorized representatives that signed the contract?
-            - Are the dates and witnesses properly included?
+            - **Ensure the names and dates of signatures are displayed properly.**
+            - If there are any witnesses or notaries, include their information as well.
 
         Below is the contract text:
         {contract_text}
