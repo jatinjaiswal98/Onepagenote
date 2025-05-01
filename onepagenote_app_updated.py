@@ -1,80 +1,112 @@
-import openai
 import streamlit as st
-from PyPDF2 import PdfReader
+import tempfile
+import os
 from docx import Document
+import PyPDF2
+import openai
 
-# Set up OpenAI API key and model
-openai.api_key = st.secrets["OPENAI_API_KEY"]
+# Load Together API key from Streamlit secrets
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
-# Function to handle the contract summarization
-def summarize_contract(contract_text):
-    prompt = """
-    Summarize this contract in a structured format with all the following sections:
+# Function to extract text from uploaded files
+def extract_text(file):
+    ext = file.name.split(".")[-1].lower()
+    if ext == "txt":
+        return file.read().decode("utf-8")
+    elif ext == "pdf":
+        reader = PyPDF2.PdfReader(file)
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return text
+    elif ext == "docx":
+        doc = Document(file)
+        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+    else:
+        return "Unsupported file format"
 
-    1. Parties Involved: (Full names and addresses of all parties, legal authority to sign)
-    2. Purpose of the Contract: (Clear statement of intent or scope)
-    3. Terms and Conditions: (Duration, payment terms, obligations)
-    4. Deliverables and Timelines: (Milestones, deadlines, performance expectations)
-    5. Termination Clause: (Conditions for early termination, notice period)
-    6. Confidentiality Clause: (Non-disclosure terms)
-    7. Dispute Resolution: (Mediation, arbitration details, jurisdiction)
-    8. Liabilities and Indemnities: (Risk-bearing, compensation clauses)
-    9. Force Majeure: (Protection against unforeseen events)
-    10. Amendments and Modifications: (How contract changes are documented)
-    11. Warranties and Representations: (Guarantees made by the parties)
-    12. Governing Law: (Applicable jurisdiction or country's laws)
-    13. Signatures and Dates: (Names, roles, and dates of signatures)
-    14. Annexures: (Any supporting documents attached at the end)
-
-    Ensure the summary is well-formatted and covers all points listed above. If any section is missing, indicate it as "Not specified in the contract."
-    """
-    
-    try:
-        # Call OpenAI API to get summary
-        response = openai.Completion.create(
-            engine="text-davinci-003",  # You can switch to the model you are using
-            prompt=prompt + "\n\n" + contract_text,
-            max_tokens=1500,
-            temperature=0.7
-        )
-        return response.choices[0].text.strip()
-    
-    except Exception as e:
-        return f"An error occurred: {e}"
-
-# Function to extract text from PDF file
-def read_pdf(pdf_file):
-    reader = PdfReader(pdf_file)
-    contract_text = ""
-    for page in reader.pages:
-        contract_text += page.extract_text()
-    return contract_text
-
-# Function to extract text from DOCX file
-def read_docx(docx_file):
-    doc = Document(docx_file)
-    contract_text = ""
-    for para in doc.paragraphs:
-        contract_text += para.text
-    return contract_text
-
-# Streamlit code for user interface
-st.title("Contract Summarization Tool")
-
-uploaded_file = st.file_uploader("Upload a contract file", type=["pdf", "docx", "txt"])
+st.title("📄 OnePageNote – Contract Summarizer")
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
-    # Read the contract text
-    if uploaded_file.type == "application/pdf":
-        contract_text = read_pdf(uploaded_file)  # Extract text from PDF
-    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        contract_text = read_docx(uploaded_file)  # Extract text from DOCX file
+    contract_text = extract_text(uploaded_file)
+    if contract_text:
+        st.success("File uploaded and read successfully!")
+
+        prompt = f"""
+        You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
+
+        🔑 **Key Points in Legal Contracts**:
+        
+        1. **Parties Involved**:
+            - Provide the full names and addresses of all parties.
+            - Specify the legal capacity and authority of each party to sign the contract.
+
+        2. **Purpose of the Contract**:
+            - What is the clear statement of intent or scope of the contract?
+            - Describe the goods, services, or responsibilities the contract addresses.
+
+        3. **Terms and Conditions**:
+            - What are the start and end dates of the contract (or is it ongoing)?
+            - What are the payment terms (amount, mode, frequency)?
+            - What are the obligations and duties of each party under the contract?
+
+        4. **Deliverables and Timelines**:
+            - What are the milestones or deadlines mentioned in the contract?
+            - Are there any quality or performance expectations set in the contract?
+
+        5. **Termination Clause**:
+            - Under what conditions can the contract be terminated early?
+            - What is the notice period for termination?
+
+        6. **Confidentiality Clause**:
+            - Are there any terms for non-disclosure of proprietary or sensitive information?
+
+        7. **Dispute Resolution**:
+            - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
+
+        8. **Liabilities and Indemnities**:
+            - What risks are each party responsible for?
+            - What compensation is due for losses, damages, or third-party claims?
+
+        9. **Force Majeure**:
+            - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
+
+        10. **Amendments and Modifications**:
+            - How will changes to the agreement be made and documented?
+
+        11. **Warranties and Representations**:
+            - Are there any guarantees made by either party regarding facts or performance?
+
+        12. **Governing Law**:
+            - What laws (e.g., country or state) govern the contract?
+
+        13. **Annexures or Schedules** (if any):
+            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
+            - Include the full annexure contents.
+
+        14. **Signatures and Dates**:
+            - Who are the authorized representatives that signed the contract?
+            - Are the dates and witnesses properly included?
+
+        Below is the contract text:
+        {contract_text}
+        """
+
+        st.write("Generating summary...")
+
+        try:
+            response = client.chat.completions.create(
+                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+                messages=[
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts with detailed breakdowns."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
+            summary = response.choices[0].message.content
+            st.subheader("📋 One Page Summary:")
+            st.write(summary)
+        except Exception as e:
+            st.error(f"Failed to generate summary: {e}")
     else:
-        contract_text = uploaded_file.read().decode("utf-8")  # Read text from plain text file
-
-    # Generate the summary
-    summary = summarize_contract(contract_text)
-
-    # Display the summary
-    st.subheader("Contract Summary")
-    st.text_area("Summary", summary, height=400)
+        st.error("Could not read file content.")
