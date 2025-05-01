@@ -9,6 +9,7 @@ import openai
 api_key = st.secrets["TOGETHER_API_KEY"]
 client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
+# Function to extract text from uploaded files
 def extract_text(file):
     ext = file.name.split(".")[-1].lower()
     if ext == "txt":
@@ -32,47 +33,61 @@ if uploaded_file:
         st.success("File uploaded and read successfully!")
 
         prompt = f"""
-        You are a legal analyst. Read the following contract and create a one-page summary. Include:
+        You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
 
-        🔑 Key Points in Legal Contracts:
-        - **Parties Involved**:
-          - Full names and addresses of all parties
-          - Legal capacity and authority to sign
-        - **Purpose of the Contract**:
-          - Clear statement of intent or scope
-          - Description of services, goods, or responsibilities
-        - **Terms and Conditions**:
-          - Duration (start/end dates or ongoing)
-          - Payment terms (amount, mode, frequency)
-          - Obligations and duties of each party
-        - **Deliverables and Timelines**:
-          - Milestones or deadlines
-          - Quality or performance expectations
-        - **Termination Clause**:
-          - Conditions under which the contract can be ended early
-          - Notice period requirements
-        - **Confidentiality Clause**:
-          - Non-disclosure of proprietary or sensitive information
-        - **Dispute Resolution**:
-          - Mediation, arbitration, or jurisdiction for legal proceedings
-        - **Liabilities and Indemnities**:
-          - Who bears what risk
-          - Compensation for losses, damages, or third-party claims
-        - **Force Majeure**:
-          - Protection against unforeseeable events (natural disasters, war, etc.)
-        - **Amendments and Modifications**:
-          - How changes to the agreement will be made and documented
-        - **Warranties and Representations**:
-          - Guarantees made by either party regarding facts or performance
-        - **Governing Law**:
-          - Which country/state's laws apply to the contract
-        - **Signatures and Dates**:
-          - Signed by authorized representatives
-          - Properly dated and witnessed if required
-        - **Annexures or Schedules** (if any):
-          - Supporting documents or detailed breakdowns attached at the end
+        🔑 **Key Points in Legal Contracts**:
+        
+        1. **Parties Involved**:
+            - Provide the full names and addresses of all parties.
+            - Specify the legal capacity and authority of each party to sign the contract.
 
-        Here is the contract:
+        2. **Purpose of the Contract**:
+            - What is the clear statement of intent or scope of the contract?
+            - Describe the goods, services, or responsibilities the contract addresses.
+
+        3. **Terms and Conditions**:
+            - What are the start and end dates of the contract (or is it ongoing)?
+            - What are the payment terms (amount, mode, frequency)?
+            - What are the obligations and duties of each party under the contract?
+
+        4. **Deliverables and Timelines**:
+            - What are the milestones or deadlines mentioned in the contract?
+            - Are there any quality or performance expectations set in the contract?
+
+        5. **Termination Clause**:
+            - Under what conditions can the contract be terminated early?
+            - What is the notice period for termination?
+
+        6. **Confidentiality Clause**:
+            - Are there any terms for non-disclosure of proprietary or sensitive information?
+
+        7. **Dispute Resolution**:
+            - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
+
+        8. **Liabilities and Indemnities**:
+            - What risks are each party responsible for?
+            - What compensation is due for losses, damages, or third-party claims?
+
+        9. **Force Majeure**:
+            - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
+
+        10. **Amendments and Modifications**:
+            - How will changes to the agreement be made and documented?
+
+        11. **Warranties and Representations**:
+            - Are there any guarantees made by either party regarding facts or performance?
+
+        12. **Governing Law**:
+            - What laws (e.g., country or state) govern the contract?
+
+        13. **Signatures and Dates**:
+            - Who are the authorized representatives that signed the contract?
+            - Are the dates and witnesses properly included?
+
+        14. **Annexures or Schedules** (if any):
+            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
+
+        Below is the contract text:
         {contract_text}
         """
 
@@ -82,7 +97,7 @@ if uploaded_file:
             response = client.chat.completions.create(
                 model="mistralai/Mixtral-8x7B-Instruct-v0.1",
                 messages=[
-                    {"role": "system", "content": "You are a legal assistant. Summarize contracts."},
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts with detailed breakdowns."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
