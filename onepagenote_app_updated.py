@@ -1,130 +1,112 @@
 import streamlit as st
-import os
 import tempfile
-import fitz  # PyMuPDF
-import docx
+import os
+from docx import Document
+import PyPDF2
 import openai
-from PyPDF2 import PdfReader
 
-# Set your Together API key here
-api_key = st.secrets.get("TOGETHER_API_KEY")
-client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz")
+# Load Together API key from Streamlit secrets
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
-st.set_page_config(page_title="OnePageNote - Contract Summary", layout="centered")
-st.title("📄 OnePageNote - Contract Summary Tool")
-
-uploaded_file = st.file_uploader("Upload Contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
-
+# Function to extract text from uploaded files
 def extract_text(file):
-    if file.name.endswith(".pdf"):
-        text = ""
-        pdf = PdfReader(file)
-        for page in pdf.pages:
-            text += page.extract_text() or ""
-        return text
-    elif file.name.endswith(".docx"):
-        doc = docx.Document(file)
-        return "\n".join([para.text for para in doc.paragraphs])
-    elif file.name.endswith(".txt"):
+    ext = file.name.split(".")[-1].lower()
+    if ext == "txt":
         return file.read().decode("utf-8")
-    return ""
+    elif ext == "pdf":
+        reader = PyPDF2.PdfReader(file)
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return text
+    elif ext == "docx":
+        doc = Document(file)
+        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+    else:
+        return "Unsupported file format"
 
-def extract_annexures(text):
-    lines = text.splitlines()
-    annexure_section = ""
-    capture = False
-    for i in range(len(lines)-1, -1, -1):
-        if any(word.lower() in lines[i].lower() for word in ["annexure", "appendix", "schedule"]):
-            capture = True
-        if capture:
-            annexure_section = lines[i] + "\n" + annexure_section
-    return annexure_section.strip()
-
-def extract_signatures(text):
-    lines = text.splitlines()
-    signature_lines = []
-    for line in lines[-100:]:
-        if any(keyword in line.lower() for keyword in ["signed", "signature", "date", "by", "on behalf"]):
-            signature_lines.append(line)
-    return "\n".join(signature_lines).strip()
-
-def format_prompt(text, annexures, signatures):
-    prompt = f"""
-You are a legal assistant. Extract the following key sections from the given contract and create a clear, structured one-page summary. Follow the exact format and fill in every section:
-
-🔑 Key Points in Legal Contracts
-
-**Parties Involved**
-- Full names and addresses
-- Legal authority
-
-**Purpose of the Contract**
-- Intent and scope
-- Goods/services/responsibilities
-
-**Terms and Conditions**
-- Duration (start/end)
-- Payment terms
-- Obligations
-
-**Deliverables and Timelines**
-- Key milestones
-- Deadlines
-- Quality/performance expectations
-
-**Termination Clause**
-- Conditions to terminate
-- Notice period
-
-**Confidentiality Clause**
-- Non-disclosure obligations
-
-**Dispute Resolution**
-- Legal process and jurisdiction
-
-**Liabilities and Indemnities**
-- Risk allocation
-- Compensation
-
-**Force Majeure**
-- Unforeseeable event handling
-
-**Amendments and Modifications**
-- How changes are managed
-
-**Warranties and Representations**
-- Promises or guarantees made
-
-**Governing Law**
-- Applicable law
-
-**Annexures**
-{annexures or 'No annexures found'}
-
-**Signatures and Dates**
-{signatures or 'Signatures not clearly found'}
-
-Here is the contract:
-{text[:15000]}
-"""
-    return prompt
+st.title("📄 OnePageNote – Contract Summarizer")
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
-    with st.spinner("Processing file and generating summary..."):
-        raw_text = extract_text(uploaded_file)
-        annexures = extract_annexures(raw_text)
-        signatures = extract_signatures(raw_text)
-        full_prompt = format_prompt(raw_text, annexures, signatures)
+    contract_text = extract_text(uploaded_file)
+    if contract_text:
+        st.success("File uploaded and read successfully!")
+
+        prompt = f"""
+        You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
+
+        🔑 **Key Points in Legal Contracts**:
+        
+        1. **Parties Involved**:
+            - Provide the full names and addresses of all parties.
+            - Specify the legal capacity and authority of each party to sign the contract.
+
+        2. **Purpose of the Contract**:
+            - What is the clear statement of intent or scope of the contract?
+            - Describe the goods, services, or responsibilities the contract addresses.
+
+        3. **Terms and Conditions**:
+            - What are the start and end dates of the contract (or is it ongoing)?
+            - What are the payment terms (amount, mode, frequency)?
+            - What are the obligations and duties of each party under the contract?
+
+        4. **Deliverables and Timelines**:
+            - What are the milestones or deadlines mentioned in the contract?
+            - Are there any quality or performance expectations set in the contract?
+
+        5. **Termination Clause**:
+            - Under what conditions can the contract be terminated early?
+            - What is the notice period for termination?
+
+        6. **Confidentiality Clause**:
+            - Are there any terms for non-disclosure of proprietary or sensitive information?
+
+        7. **Dispute Resolution**:
+            - What are the terms for mediation, arbitration, or jurisdiction for legal proceedings?
+
+        8. **Liabilities and Indemnities**:
+            - What risks are each party responsible for?
+            - What compensation is due for losses, damages, or third-party claims?
+
+        9. **Force Majeure**:
+            - Does the contract contain any clauses protecting against unforeseeable events (e.g., natural disasters, war)?
+
+        10. **Amendments and Modifications**:
+            - How will changes to the agreement be made and documented?
+
+        11. **Warranties and Representations**:
+            - Are there any guarantees made by either party regarding facts or performance?
+
+        12. **Governing Law**:
+            - What laws (e.g., country or state) govern the contract?
+
+        13. **Annexures or Schedules** (if any):
+            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
+            - Include the full annexure contents.
+
+        14. **Signatures and Dates**:
+            - Who are the authorized representatives that signed the contract?
+            - Are the dates and witnesses properly included?
+
+        Below is the contract text:
+        {contract_text}
+        """
+
+        st.write("Generating summary...")
 
         try:
             response = client.chat.completions.create(
                 model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                messages=[{"role": "user", "content": full_prompt}],
-                max_tokens=2048,
-                temperature=0.3
+                messages=[
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts with detailed breakdowns."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
             )
-            summary = response.choices[0].message.content.strip()
-            st.success("✅ Summary generated successfully!")
-            st.text_area("📄 Contract Summary", summary, height=600)
+            summary = response.choices[0].message.content
+            st.subheader("📋 One Page Summary:")
+            st.write(summary)
         except Exception as e:
-            st.error(f"Error generating summary: {str(e)}")
+            st.error(f"Failed to generate summary: {e}")
+    else:
+        st.error("Could not read file content.")
