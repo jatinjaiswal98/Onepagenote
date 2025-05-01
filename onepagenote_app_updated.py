@@ -37,11 +37,15 @@ def summarize_contract(text):
         # Debugging: Print the entire response to check its structure
         st.write("API Response:", response)
 
-        # Accessing the 'content' inside 'choices' correctly
+        # Check if the response contains the necessary data
         if 'choices' in response and len(response['choices']) > 0:
-            summary = response['choices'][0]['message']['content']
+            choice_data = response['choices'][0]
+            if 'message' in choice_data and 'content' in choice_data['message']:
+                summary = choice_data['message']['content']
+            else:
+                summary = "Error: No content found in the response message."
         else:
-            summary = "Error: No valid summary returned."
+            summary = "Error: No valid choices in the response."
     except Exception as e:
         summary = f"An error occurred: {str(e)}"
     
