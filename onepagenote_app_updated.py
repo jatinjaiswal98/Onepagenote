@@ -1,50 +1,67 @@
 import streamlit as st
-import requests
-import base64
+import tempfile
 import os
 from docx import Document
+import PyPDF2
+import openai
 
-st.title("📄 OnePageNote - Contract Summarizer")
-
-uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
+# Load Together API key from Streamlit secrets
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
 def extract_text(file):
-    if file.name.endswith(".txt"):
+    ext = file.name.split(".")[-1].lower()
+    if ext == "txt":
         return file.read().decode("utf-8")
-    elif file.name.endswith(".docx"):
+    elif ext == "pdf":
+        reader = PyPDF2.PdfReader(file)
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return text
+    elif ext == "docx":
         doc = Document(file)
-        return "\n".join([para.text for para in doc.paragraphs])
-    elif file.name.endswith(".pdf"):
-        from PyPDF2 import PdfReader
-        reader = PdfReader(file)
-        return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
-    return ""
+        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
+    else:
+        return "Unsupported file format"
 
-def query_together_ai(prompt, api_key):
-    url = "https://api.together.xyz/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    data = {
-        "model": "mistralai/Mistral-7B-Instruct-v0.1",
-        "messages": [
-            {"role": "system", "content": "You are a legal expert. Summarize this contract in one page. Include key terms, obligations, parties, duration, annexures, and notable clauses."},
-            {"role": "user", "content": prompt}
-        ],
-        "max_tokens": 1024,
-        "temperature": 0.5
-    }
-    response = requests.post(url, headers=headers, json=data)
-    return response.json()["choices"][0]["message"]["content"]
+st.title("📄 OnePageNote – Contract Summarizer")
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
-    text = extract_text(uploaded_file)
-    if text:
-        st.info("Extracting and summarizing contract...")
-        api_key = st.secrets["TOGETHER_API_KEY"]  # Set in Streamlit Cloud secrets
-        summary = query_together_ai(text, api_key)
-        st.subheader("📌 One-Page Summary:")
-        st.write(summary)
+    contract_text = extract_text(uploaded_file)
+    if contract_text:
+        st.success("File uploaded and read successfully!")
+
+        prompt = f"""
+        You are a legal analyst. Read the following contract and create a one-page summary. Include:
+        - Names of all parties involved
+        - Start and end dates / duration
+        - Payment terms and obligations
+        - Termination clauses
+        - Governing law
+        - Responsibilities of each party
+        - Any penalties or breach clauses
+        - Any referenced annexures and their summaries
+        - Any unusual or important clauses
+
+        Here is the contract:
+        {contract_text}
+        """
+
+        st.write("Generating summary...")
+
+        try:
+            response = client.chat.completions.create(
+                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+                messages=[
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
+            summary = response.choices[0].message.content
+            st.subheader("📋 One Page Summary:")
+            st.write(summary)
+        except Exception as e:
+            st.error(f"Failed to generate summary: {e}")
     else:
-        st.error("Couldn't read the file.")
+        st.error("Could not read file content.")
