@@ -33,15 +33,44 @@ if uploaded_file:
 
         prompt = f"""
         You are a legal analyst. Read the following contract and create a one-page summary. Include:
-        - Names of all parties involved
-        - Start and end dates / duration
-        - Payment terms and obligations
-        - Termination clauses
-        - Governing law
-        - Responsibilities of each party
-        - Any penalties or breach clauses
-        - Any referenced annexures and their summaries
-        - Any unusual or important clauses
+
+        🔑 Key Points in Legal Contracts:
+        - **Parties Involved**:
+          - Full names and addresses of all parties
+          - Legal capacity and authority to sign
+        - **Purpose of the Contract**:
+          - Clear statement of intent or scope
+          - Description of services, goods, or responsibilities
+        - **Terms and Conditions**:
+          - Duration (start/end dates or ongoing)
+          - Payment terms (amount, mode, frequency)
+          - Obligations and duties of each party
+        - **Deliverables and Timelines**:
+          - Milestones or deadlines
+          - Quality or performance expectations
+        - **Termination Clause**:
+          - Conditions under which the contract can be ended early
+          - Notice period requirements
+        - **Confidentiality Clause**:
+          - Non-disclosure of proprietary or sensitive information
+        - **Dispute Resolution**:
+          - Mediation, arbitration, or jurisdiction for legal proceedings
+        - **Liabilities and Indemnities**:
+          - Who bears what risk
+          - Compensation for losses, damages, or third-party claims
+        - **Force Majeure**:
+          - Protection against unforeseeable events (natural disasters, war, etc.)
+        - **Amendments and Modifications**:
+          - How changes to the agreement will be made and documented
+        - **Warranties and Representations**:
+          - Guarantees made by either party regarding facts or performance
+        - **Governing Law**:
+          - Which country/state's laws apply to the contract
+        - **Signatures and Dates**:
+          - Signed by authorized representatives
+          - Properly dated and witnessed if required
+        - **Annexures or Schedules** (if any):
+          - Supporting documents or detailed breakdowns attached at the end
 
         Here is the contract:
         {contract_text}
