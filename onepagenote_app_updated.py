@@ -25,14 +25,25 @@ def read_docx(file):
 
 # Function to process and summarize contract text
 def summarize_contract(text):
-    response = client.chat.completions.create(
-        model="mistralai/Mistral-7B-Instruct-v0.1",  # Adjust the model as needed
-        messages=[
-            {"role": "system", "content": "You are a legal assistant. Extract a detailed contract summary."},
-            {"role": "user", "content": text}
-        ]
-    )
-    summary = response["choices"][0]["message"]["content"]
+    try:
+        response = client.chat.completions.create(
+            model="mistralai/Mistral-7B-Instruct-v0.1",  # Adjust the model as needed
+            messages=[
+                {"role": "system", "content": "You are a legal assistant. Extract a detailed contract summary."},
+                {"role": "user", "content": text}
+            ]
+        )
+        # Print the response to debug the structure
+        st.write("API Response:", response)
+
+        # Adjusting for correct structure of the response
+        if 'choices' in response and len(response['choices']) > 0:
+            summary = response['choices'][0].get('message', {}).get('content', "No content found.")
+        else:
+            summary = "Error: No valid summary returned."
+    except Exception as e:
+        summary = f"An error occurred: {str(e)}"
+    
     return summary
 
 # Streamlit app layout
