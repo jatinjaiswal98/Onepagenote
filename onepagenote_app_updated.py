@@ -33,7 +33,7 @@ if uploaded_file:
         st.success("File uploaded and read successfully!")
 
         prompt = f"""
-        You are a legal expert. Your task is to summarize the contract in one page and provide detailed breakdowns under the following key points. Please ensure to extract full annexures (if any) found in the last few pages of the contract. Also, ensure that the **Signatures, Name, and Date** are included in the final summary. Your summary should follow this structure:
+        You are a legal expert. Your task is to summarize the contract in one page and provide details under the following key points:
 
         🔑 **Key Points in Legal Contracts**:
         
@@ -81,12 +81,12 @@ if uploaded_file:
             - What laws (e.g., country or state) govern the contract?
 
         13. **Annexures or Schedules** (if any):
-            - Include **all annexure content**, which can be found in the last pages of the contract. Make sure all supporting documents or detailed breakdowns attached at the end of the contract are fully included.
+            - Are there supporting documents or detailed breakdowns attached at the end of the contract?
+            - Include the full annexure contents.
 
         14. **Signatures and Dates**:
-            - Provide the names and signatures of the authorized representatives.
-            - Include the **date** of signing.
-            - Ensure that **dates and witness information** are properly captured.
+            - Who are the authorized representatives that signed the contract?
+            - Are the dates and witnesses properly included?
 
         Below is the contract text:
         {contract_text}
