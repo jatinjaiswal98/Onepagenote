@@ -1,67 +1,61 @@
 import streamlit as st
 import tempfile
-import os
-from docx import Document
-import PyPDF2
-import openai
+from PyPDF2 import PdfReader
+import docx
+import together
 
-# Load Together API key from Streamlit secrets
-api_key = st.secrets["TOGETHER_API_KEY"]
-client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
+st.set_page_config(page_title="OnePageNote", layout="wide")
+
+st.title("📄 OnePageNote - AI Contract Summarizer")
+
+uploaded_file = st.file_uploader("Upload your contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
 
 def extract_text(file):
-    ext = file.name.split(".")[-1].lower()
-    if ext == "txt":
+    if file.name.endswith(".pdf"):
+        reader = PdfReader(file)
+        return "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
+    elif file.name.endswith(".docx"):
+        doc = docx.Document(file)
+        return "\n".join([para.text for para in doc.paragraphs])
+    elif file.name.endswith(".txt"):
         return file.read().decode("utf-8")
-    elif ext == "pdf":
-        reader = PyPDF2.PdfReader(file)
-        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
-        return text
-    elif ext == "docx":
-        doc = Document(file)
-        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
     else:
-        return "Unsupported file format"
-
-st.title("📄 OnePageNote – Contract Summarizer")
-uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+        return ""
 
 if uploaded_file:
-    contract_text = extract_text(uploaded_file)
-    if contract_text:
-        st.success("File uploaded and read successfully!")
+    text = extract_text(uploaded_file)
 
+    st.subheader("📜 Extracted Summary")
+    with st.spinner("Analyzing contract..."):
+        together.api_key = st.secrets["TOGETHER_API_KEY"]
         prompt = f"""
-        You are a legal analyst. Read the following contract and create a one-page summary. Include:
-        - Names of all parties involved
-        - Start and end dates / duration
-        - Payment terms and obligations
-        - Termination clauses
-        - Governing law
-        - Responsibilities of each party
-        - Any penalties or breach clauses
-        - Any referenced annexures and their summaries
-        - Any unusual or important clauses
+You are a legal assistant. Read the following contract and provide a one-page summary including the following sections:
 
-        Here is the contract:
-        {contract_text}
-        """
+1. **Parties Involved** – Full names, addresses, and capacity to sign.
+2. **Purpose of the Contract** – Clear statement of intent.
+3. **Terms and Conditions** – Duration, payment, and responsibilities.
+4. **Deliverables and Timelines** – Milestones or quality expectations.
+5. **Termination Clause** – Conditions and notice period.
+6. **Confidentiality Clause** – Any restrictions on disclosure.
+7. **Dispute Resolution** – Jurisdiction, arbitration, or mediation.
+8. **Liabilities and Indemnities** – Risk and compensation.
+9. **Force Majeure** – Events covered and their effects.
+10. **Amendments and Modifications** – How changes are documented.
+11. **Warranties and Representations** – Guarantees made by parties.
+12. **Governing Law** – Which law governs this agreement.
+13. **Signatures and Dates** – Signed by whom and when.
+14. **Annexures or Schedules** – List and summarize annexures verbatim.
 
-        st.write("Generating summary...")
+Contract Text:
+{text}
+"""
 
-        try:
-            response = client.chat.completions.create(
-                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                messages=[
-                    {"role": "system", "content": "You are a legal assistant. Summarize contracts."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3,
-            )
-            summary = response.choices[0].message.content
-            st.subheader("📋 One Page Summary:")
-            st.write(summary)
-        except Exception as e:
-            st.error(f"Failed to generate summary: {e}")
-    else:
-        st.error("Could not read file content.")
+        response = together.chat.completions.create(
+            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=2048
+        )
+
+        summary = response.choices[0].message.content
+        st.markdown(summary)
