@@ -1,110 +1,80 @@
+import openai
 import streamlit as st
-import os
-import tempfile
-import fitz  # PyMuPDF
-import docx2txt
-import together
+from PyPDF2 import PdfReader
+from docx import Document
 
-st.set_page_config(page_title="OnePageNote - Contract Summarizer", layout="wide")
-st.title("📄 OnePageNote - Contract Summarizer")
+# Set up OpenAI API key and model
+openai.api_key = st.secrets["OPENAI_API_KEY"]
 
-uploaded_file = st.file_uploader("Upload a contract file (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+# Function to handle the contract summarization
+def summarize_contract(contract_text):
+    prompt = """
+    Summarize this contract in a structured format with all the following sections:
+
+    1. Parties Involved: (Full names and addresses of all parties, legal authority to sign)
+    2. Purpose of the Contract: (Clear statement of intent or scope)
+    3. Terms and Conditions: (Duration, payment terms, obligations)
+    4. Deliverables and Timelines: (Milestones, deadlines, performance expectations)
+    5. Termination Clause: (Conditions for early termination, notice period)
+    6. Confidentiality Clause: (Non-disclosure terms)
+    7. Dispute Resolution: (Mediation, arbitration details, jurisdiction)
+    8. Liabilities and Indemnities: (Risk-bearing, compensation clauses)
+    9. Force Majeure: (Protection against unforeseen events)
+    10. Amendments and Modifications: (How contract changes are documented)
+    11. Warranties and Representations: (Guarantees made by the parties)
+    12. Governing Law: (Applicable jurisdiction or country's laws)
+    13. Signatures and Dates: (Names, roles, and dates of signatures)
+    14. Annexures: (Any supporting documents attached at the end)
+
+    Ensure the summary is well-formatted and covers all points listed above. If any section is missing, indicate it as "Not specified in the contract."
+    """
+    
+    try:
+        # Call OpenAI API to get summary
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # You can switch to the model you are using
+            prompt=prompt + "\n\n" + contract_text,
+            max_tokens=1500,
+            temperature=0.7
+        )
+        return response.choices[0].text.strip()
+    
+    except Exception as e:
+        return f"An error occurred: {e}"
+
+# Function to extract text from PDF file
+def read_pdf(pdf_file):
+    reader = PdfReader(pdf_file)
+    contract_text = ""
+    for page in reader.pages:
+        contract_text += page.extract_text()
+    return contract_text
+
+# Function to extract text from DOCX file
+def read_docx(docx_file):
+    doc = Document(docx_file)
+    contract_text = ""
+    for para in doc.paragraphs:
+        contract_text += para.text
+    return contract_text
+
+# Streamlit code for user interface
+st.title("Contract Summarization Tool")
+
+uploaded_file = st.file_uploader("Upload a contract file", type=["pdf", "docx", "txt"])
 
 if uploaded_file:
-    file_ext = uploaded_file.name.split(".")[-1].lower()
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix="." + file_ext) as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        tmp_path = tmp_file.name
-
-    # Extract text based on file type
-    if file_ext == "pdf":
-        doc = fitz.open(tmp_path)
-        full_text = "\n".join([page.get_text() for page in doc])
-        total_pages = len(doc)
-        annexure_text = "\n".join([doc[i].get_text() for i in range(total_pages - 5, total_pages)])
-        main_text = "\n".join([doc[i].get_text() for i in range(total_pages - 5)])
-    elif file_ext == "docx":
-        full_text = docx2txt.process(tmp_path)
-        split_index = int(len(full_text.split()) * 0.85)
-        words = full_text.split()
-        main_text = " ".join(words[:split_index])
-        annexure_text = " ".join(words[split_index:])
-    elif file_ext == "txt":
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            full_text = f.read()
-        split_index = int(len(full_text.split()) * 0.85)
-        words = full_text.split()
-        main_text = " ".join(words[:split_index])
-        annexure_text = " ".join(words[split_index:])
+    # Read the contract text
+    if uploaded_file.type == "application/pdf":
+        contract_text = read_pdf(uploaded_file)  # Extract text from PDF
+    elif uploaded_file.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        contract_text = read_docx(uploaded_file)  # Extract text from DOCX file
     else:
-        st.error("Unsupported file format.")
-        st.stop()
+        contract_text = uploaded_file.read().decode("utf-8")  # Read text from plain text file
 
-    # Call Together API
-    api_key = st.secrets["TOGETHER_API_KEY"]
-    together.api_key = api_key
+    # Generate the summary
+    summary = summarize_contract(contract_text)
 
-    prompt_main = f"""
-You are a legal assistant. Summarize the following contract. Provide a one-page structured summary with the following sections:
-
-1. Parties Involved
-2. Purpose of the Contract
-3. Terms and Conditions (Duration, Payment, Obligations)
-4. Deliverables and Timelines
-5. Termination Clause
-6. Confidentiality Clause
-7. Dispute Resolution
-8. Liabilities and Indemnities
-9. Force Majeure
-10. Amendments and Modifications
-11. Warranties and Representations
-12. Governing Law
-
----
-
-Contract Text:
-{main_text}
-"""
-
-    prompt_annexure = f"""
-You are a legal assistant. From the following contract text (typically the last few pages), extract:
-1. Complete Annexures (as-is)
-2. Signature Names and Dates (if available)
-
----
-
-Text:
-{annexure_text}
-"""
-
-    with st.spinner("Summarizing contract..."):
-        try:
-            main_response = together.Complete.create(
-                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                prompt=prompt_main,
-                max_tokens=1024,
-                temperature=0.7,
-                stop=["---"]
-            )
-            annexure_response = together.Complete.create(
-                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-                prompt=prompt_annexure,
-                max_tokens=1024,
-                temperature=0.7,
-                stop=["---"]
-            )
-
-            main_summary = main_response["output"].strip()
-            annexure_summary = annexure_response["output"].strip()
-
-            st.subheader("📌 Contract Summary")
-            st.markdown(main_summary)
-
-            st.subheader("📎 Annexures & Signatures")
-            st.markdown(annexure_summary)
-
-        except Exception as e:
-            st.error(f"An error occurred: {str(e)}")
-
-    os.remove(tmp_path
+    # Display the summary
+    st.subheader("Contract Summary")
+    st.text_area("Summary", summary, height=400)
