@@ -2,18 +2,17 @@ import streamlit as st
 from together import Together
 import PyPDF2
 import docx
-import os
+from io import BytesIO
 
 # Initialize Together client
 client = Together(api_key=st.secrets["TOGETHER_API_KEY"])  # Replace with your actual Together API key
 
 # Function to read PDF files
 def read_pdf(file):
-    with open(file, "rb") as f:
-        reader = PyPDF2.PdfReader(f)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text()
+    pdf_reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in pdf_reader.pages:
+        text += page.extract_text()
     return text
 
 # Function to read DOCX files
@@ -64,4 +63,3 @@ if uploaded_file is not None:
         summary = summarize_contract(contract_text)
         st.subheader("Contract Summary")
         st.write(summary)
-
