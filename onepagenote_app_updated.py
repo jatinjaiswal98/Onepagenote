@@ -1,81 +1,67 @@
 import streamlit as st
-from together import Together
+import tempfile
+import os
+from docx import Document
 import PyPDF2
-import docx
-from io import BytesIO
+import openai
 
-# Initialize Together client
-client = Together(api_key=st.secrets["TOGETHER_API_KEY"])  # Replace with your actual Together API key
+# Load Together API key from Streamlit secrets
+api_key = st.secrets["TOGETHER_API_KEY"]
+client = openai.OpenAI(api_key=api_key, base_url="https://api.together.xyz/v1")
 
-# Function to read PDF files
-def read_pdf(file):
-    pdf_reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in pdf_reader.pages:
-        text += page.extract_text()
-    return text
-
-# Function to read DOCX files
-def read_docx(file):
-    doc = docx.Document(file)
-    text = ""
-    for para in doc.paragraphs:
-        text += para.text + "\n"
-    return text
-
-# Function to process and summarize contract text
-def summarize_contract(text):
-    try:
-        response = client.chat.completions.create(
-            model="mistralai/Mistral-7B-Instruct-v0.1",  # Adjust the model as needed
-            messages=[
-                {"role": "system", "content": "You are a legal assistant. Extract a detailed contract summary."},
-                {"role": "user", "content": text}
-            ]
-        )
-        
-        # Debugging: Print the entire response to check its structure
-        st.write("API Response:", response)
-
-        # Check if the response contains the necessary data
-        if 'choices' in response and len(response['choices']) > 0:
-            choice_data = response['choices'][0]
-            if 'message' in choice_data and 'content' in choice_data['message']:
-                summary = choice_data['message']['content']
-            else:
-                summary = "Error: No content found in the response message."
-        else:
-            summary = "Error: No valid choices in the response."
-    except Exception as e:
-        summary = f"An error occurred: {str(e)}"
-    
-    return summary
-
-# Streamlit app layout
-st.title("Contract Summary Tool")
-st.write("Upload a contract in PDF, DOCX, or TXT format and receive a one-page summary.")
-
-# File upload
-uploaded_file = st.file_uploader("Choose a contract file", type=["pdf", "docx", "txt"])
-
-if uploaded_file is not None:
-    # Check the file type
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-
-    # Read file content based on file type
-    if file_extension == "pdf":
-        contract_text = read_pdf(uploaded_file)
-    elif file_extension == "docx":
-        contract_text = read_docx(uploaded_file)
-    elif file_extension == "txt":
-        contract_text = uploaded_file.read().decode("utf-8")
+def extract_text(file):
+    ext = file.name.split(".")[-1].lower()
+    if ext == "txt":
+        return file.read().decode("utf-8")
+    elif ext == "pdf":
+        reader = PyPDF2.PdfReader(file)
+        text = "\n".join(page.extract_text() for page in reader.pages if page.extract_text())
+        return text
+    elif ext == "docx":
+        doc = Document(file)
+        return "\n".join(paragraph.text for paragraph in doc.paragraphs)
     else:
-        st.error("Unsupported file type.")
-        contract_text = ""
+        return "Unsupported file format"
 
-    # Summarize the contract
+st.title("📄 OnePageNote – Contract Summarizer")
+uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, TXT)", type=["pdf", "docx", "txt"])
+
+if uploaded_file:
+    contract_text = extract_text(uploaded_file)
     if contract_text:
+        st.success("File uploaded and read successfully!")
+
+        prompt = f"""
+        You are a legal analyst. Read the following contract and create a one-page summary. Include:
+        - Names of all parties involved
+        - Start and end dates / duration
+        - Payment terms and obligations
+        - Termination clauses
+        - Governing law
+        - Responsibilities of each party
+        - Any penalties or breach clauses
+        - Any referenced annexures and their summaries
+        - Any unusual or important clauses
+
+        Here is the contract:
+        {contract_text}
+        """
+
         st.write("Generating summary...")
-        summary = summarize_contract(contract_text)
-        st.subheader("Contract Summary")
-        st.write(summary)
+
+        try:
+            response = client.chat.completions.create(
+                model="mistralai/Mixtral-8x7B-Instruct-v0.1",
+                messages=[
+                    {"role": "system", "content": "You are a legal assistant. Summarize contracts."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+            )
+            summary = response.choices[0].message.content
+            st.subheader("📋 One Page Summary:")
+            st.write(summary)
+        except Exception as e:
+            st.error(f"Failed to generate summary: {e}")
+    else:
+        st.error("Could not read file content.")
