@@ -1,71 +1,77 @@
 import streamlit as st
-import PyPDF2
-import tempfile
 import os
-from together import Together
+import tempfile
+from PyPDF2 import PdfReader
+import requests
 
-# Set page config
-st.set_page_config(page_title="OnePageNote - Contract Summary", layout="wide")
-st.title("📄 OnePageNote - Contract Analyzer")
-st.write("Upload a contract, and get a complete legal + commercial summary in one page.")
+# UI
+st.set_page_config(page_title="OnePageNote: Contract Summary Tool", layout="wide")
+st.title("📄 OnePageNote – AI Contract Summarizer")
+st.markdown("Upload a contract file (PDF) to get a detailed one-page summary, including legal and commercial points, signatures, and annexures.")
 
-# Upload PDF file
-uploaded_file = st.file_uploader("Upload your contract (PDF only)", type="pdf")
+# Upload
+uploaded_file = st.file_uploader("Upload Contract (PDF)", type=["pdf"])
 
 if uploaded_file is not None:
-    # Save uploaded file temporarily
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
         tmp_file.write(uploaded_file.read())
         tmp_path = tmp_file.name
 
-    # Extract text from PDF
-    text = ""
-    with open(tmp_path, "rb") as f:
-        pdf_reader = PyPDF2.PdfReader(f)
-        for page in pdf_reader.pages:
-            text += page.extract_text() or ""
+    # Read full contract
+    reader = PdfReader(tmp_path)
+    full_text = "\n".join([page.extract_text() for page in reader.pages if page.extract_text()])
 
-    os.remove(tmp_path)  # Delete temp file
+    # Extract last few pages as annexures
+    last_pages_text = "\n".join([reader.pages[i].extract_text() or "" for i in range(max(0, len(reader.pages) - 5), len(reader.pages))])
 
-    # Prepare summary prompt
-    summary_prompt = f"""
-You are a legal and commercial analyst. Summarize the contract clearly in one page with the following sections:
+    # Build prompt
+    full_prompt = f"""
+Summarize the following contract into a one-page detailed summary. The summary must include **both legal and commercial aspects**, focusing on:
 
-1. **Parties Involved**: Names and addresses of both parties.
-2. **Purpose**: What this contract is about.
-3. **Key Deliverables and Services**: Major outputs or responsibilities.
-4. **Terms & Duration**: Start/end dates, renewal terms.
-5. **Commercials**:
-   - Total contract value, if mentioned.
-   - Payment terms and frequency.
-   - Taxes, discounts, escalation clauses.
-   - Milestones and penalties/incentives.
-6. **Obligations**: Duties of each party.
-7. **SLAs & Performance Metrics**: Quality benchmarks or delivery KPIs.
-8. **Termination Clause**: Exit terms and notice periods.
-9. **Confidentiality & IP**: What information must be protected.
-10. **Dispute Resolution**: How conflicts are to be resolved.
-11. **Force Majeure**: Unforeseen events handling.
-12. **Amendments**: How modifications are made.
-13. **Governing Law**: Jurisdiction for legal matters.
-14. **Signatures & Dates**: Names and dates of signatories.
-15. **Annexures**: Clearly mention and copy full annexures attached at the end of the document.
+1. **Parties Involved** – Names, roles, and authority.
+2. **Purpose of the Contract** – Scope and intent.
+3. **Terms and Conditions** – Duration, duties, obligations.
+4. **Deliverables and Timelines** – Key milestones and expectations.
+5. **Commercial Terms** – Pricing, payment schedule, taxes, penalties, invoice terms, logistics/delivery cost.
+6. **Confidentiality Clause** – Obligations of secrecy.
+7. **Dispute Resolution** – Arbitration/jurisdiction terms.
+8. **Liabilities and Indemnities** – Risk and compensation responsibilities.
+9. **Force Majeure** – Unforeseen protections.
+10. **Amendments and Modifications** – How changes are handled.
+11. **Warranties and Representations** – Performance and truth assurances.
+12. **Governing Law** – Which jurisdiction governs the contract.
+13. **Signatures and Dates** – Include signatories’ names and dates clearly.
+14. **Annexures** – Brief all annexures or schedules (especially those with commercial terms).
 
-Keep it concise but complete. Avoid generic legal filler. Focus on key commercial, financial, and operational terms.
-"""
+Contract:
+""" + full_text + "\n\nAnnexures:\n" + last_pages_text
 
-    # Generate summary using Together API
+    # Get summary from Together.ai (Mistral model)
+    api_key = st.secrets["TOGETHER_API_KEY"]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "max_tokens": 2048,
+        "temperature": 0.4,
+        "top_p": 0.9,
+        "top_k": 50,
+        "repetition_penalty": 1.1,
+        "messages": [
+            {"role": "system", "content": "You are a legal and commercial assistant. Provide summaries of contracts with both legal and business insights."},
+            {"role": "user", "content": full_prompt}
+        ]
+    }
+
     with st.spinner("Analyzing contract and generating summary..."):
-        client = Together(api_key=st.secrets["TOGETHER_API_KEY"])
-        response = client.chat.completions.create(
-            model="meta-llama/Llama-3-70b-chat-hf",
-            messages=[
-                {"role": "system", "content": "You are an expert legal and business assistant."},
-                {"role": "user", "content": summary_prompt + "\n\nContract Text:\n" + text}
-            ],
-            temperature=0.3,
-        )
-        summary = response.choices[0].message.content
-
-    st.subheader("📋 One Page Summary")
-    st.markdown(summary)
+        response = requests.post("https://api.together.xyz/v1/chat/completions", headers=headers, json=payload)
+        if response.status_code == 200:
+            result = response.json()
+            summary = result["choices"][0]["message"]["content"]
+            st.subheader("📋 Contract Summary")
+            st.markdown(summary)
+        else:
+            st.error(f"Failed to generate summary. Status Code: {response.status_code}\n{response.text}")
