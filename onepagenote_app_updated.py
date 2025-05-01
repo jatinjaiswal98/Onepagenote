@@ -1,90 +1,110 @@
 import streamlit as st
-import os
-import tempfile
 from PyPDF2 import PdfReader
-from docx import Document
+import docx2txt
+import tempfile
 import re
-import openai
+import os
+import base64
+import requests
 
-st.set_page_config(page_title="OnePageNote - Contract Summarizer")
-st.title("📄 OnePageNote: AI Contract Summarizer")
+# Title
+st.title("📄 OnePageNote - Contract Summarizer")
 
-uploaded_file = st.file_uploader("Upload a contract (PDF, DOCX, or TXT)", type=["pdf", "docx", "txt"])
+# Upload file
+uploaded_file = st.file_uploader("Upload a contract", type=["pdf", "docx", "txt"])
 
-if uploaded_file:
-    with tempfile.NamedTemporaryFile(delete=False, suffix="." + uploaded_file.name.split(".")[-1]) as tmp_file:
-        tmp_file.write(uploaded_file.read())
-        tmp_path = tmp_file.name
+file_text = ""
+annexure_text = ""
 
-    file_text = ""
+# Extract text based on file type
+if uploaded_file is not None:
+    file_type = uploaded_file.name.split('.')[-1].lower()
 
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(tmp_path)
-        file_text = "\n".join([page.extract_text() for page in reader if page.extract_text()])
-    elif uploaded_file.name.endswith(".docx"):
-        doc = Document(tmp_path)
-        file_text = "\n".join([para.text for para in doc.paragraphs])
-    elif uploaded_file.name.endswith(".txt"):
-        with open(tmp_path, "r", encoding="utf-8") as f:
-            file_text = f.read()
+    if file_type == "pdf":
+        reader = PdfReader(uploaded_file)
+        num_pages = len(reader.pages)
+        file_text = "\n".join([page.extract_text() or "" for page in reader.pages])
+        annexure_text = "\n".join([reader.pages[i].extract_text() or "" for i in range(max(num_pages - 5, 0), num_pages)])
 
-    # Extract Annexure Pages (last 3 pages for safety)
-    annexure_text = ""
-    if uploaded_file.name.endswith(".pdf"):
-        reader = PdfReader(tmp_path)
-        annexure_text = "\n".join([reader.pages[i].extract_text() or "" for i in range(-3, 0)])
+    elif file_type == "docx":
+        file_text = docx2txt.process(uploaded_file)
+        annexure_text = "\n".join(file_text.splitlines()[-100:])  # last 100 lines as annexure
 
-    full_prompt = f"""
-    You are a legal and business analyst. Extract and summarize the following contract into one page. Include:
+    elif file_type == "txt":
+        content = uploaded_file.read().decode("utf-8")
+        file_text = content
+        annexure_text = "\n".join(content.splitlines()[-100:])  # last 100 lines as annexure
 
-    🔹 Parties Involved
-    🔹 Purpose of the Contract
-    🔹 Terms and Conditions (duration, payments, obligations)
-    🔹 Deliverables and Timelines
-    🔹 Termination Clause
-    🔹 Confidentiality
-    🔹 Dispute Resolution
-    🔹 Liabilities and Indemnities
-    🔹 Force Majeure
-    🔹 Amendments
-    🔹 Warranties and Representations
-    🔹 Governing Law
-    🔹 Signatures and Dates
-    🔹 Annexures (summarized + attach below if available)
-    🔹 📌 Highlight any price or commercial figures (₹, INR, $, %, etc.)
-    
-    Contract:
-    {file_text}
-    """
+    else:
+        st.error("Unsupported file format.")
 
-    # Highlight price terms manually in original text for visibility
-    highlighted_text = re.sub(r"(₹\s?\d+[\d,]*)", r"**\1**", file_text)
-    highlighted_text = re.sub(r"\$\s?\d+[\d,]*", r"**\g<0>**", highlighted_text)
-    highlighted_text = re.sub(r"\bINR\s?\d+[\d,]*", r"**\g<0>**", highlighted_text)
+    # Highlight pricing
+    def highlight_prices(text):
+        return re.sub(r'(\$\s?\d+[\d,\.]*|INR\s?\d+[\d,\.]*|Rs\.\s?\d+[\d,\.]*)', r'**\1**', text)
 
-    from openai import OpenAI
-    client = OpenAI(api_key=st.secrets["TOGETHER_API_KEY"])
+    file_text = highlight_prices(file_text)
 
-    with st.spinner("Generating one-page summary..."):
-        response = client.chat.completions.create(
-            model="mistralai/Mixtral-8x7B-Instruct-v0.1",
-            messages=[
-                {"role": "system", "content": "You are a contract summarization assistant."},
-                {"role": "user", "content": full_prompt}
-            ],
-            temperature=0.4
-        )
+    # Together.ai API setup
+    api_key = st.secrets["TOGETHER_API_KEY"]
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    endpoint = "https://api.together.xyz/v1/chat/completions"
 
-        summary = response.choices[0].message.content
+    # Prompt for detailed legal + commercial summary
+    prompt = f"""
+You are a contract analyst. Extract a detailed summary with the following points:
+- Parties Involved
+- Purpose of the Contract
+- Terms and Conditions
+- Deliverables and Timelines
+- Termination Clause
+- Confidentiality Clause
+- Dispute Resolution
+- Liabilities and Indemnities
+- Force Majeure
+- Amendments and Modifications
+- Warranties and Representations
+- Governing Law
+- Signatures and Dates
+- Commercials (prices, fees, payment terms)
+- Annexure summary if available
 
-    st.subheader("📌 One Page Summary")
-    st.markdown(summary)
+Contract:
+"""
 
-    st.subheader("📎 Annexure (Extracted from contract)")
-    st.text_area("Annexure Text", annexure_text, height=200)
+    payload = {
+        "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+        "messages": [
+            {"role": "system", "content": "You are an expert contract summarizer."},
+            {"role": "user", "content": prompt + file_text}
+        ],
+        "temperature": 0.4
+    }
 
-    # Optionally download annexure text as a file
-    st.download_button("📥 Download Annexure", annexure_text, file_name="Annexure.txt")
+    # Generate summary
+    with st.spinner("Analyzing contract and generating summary..."):
+        res = requests.post(endpoint, headers=headers, json=payload)
+        result = res.json()
 
-    st.subheader("🔍 Contract Text with Highlighted Commercial Terms")
-    st.markdown(highlighted_text.replace("\n", "  \n"))
+    if 'choices' in result:
+        summary = result['choices'][0]['message']['content']
+        st.subheader("📋 Contract Summary")
+        st.markdown(summary)
+
+        # Show full annexure below summary
+        st.subheader("📎 Annexure (Full Text)")
+        st.text(annexure_text)
+
+        # Offer annexure as downloadable attachment
+        with tempfile.NamedTemporaryFile(delete=False, mode='w', suffix='.txt') as annex_file:
+            annex_file.write(annexure_text)
+            st.download_button(
+                label="Download Annexure",
+                data=open(annex_file.name, 'rb').read(),
+                file_name="Annexure.txt",
+                mime="text/plain"
+            )
+    else:
+        st.error("Something went wrong. Please try again later or check your API key usage.")
